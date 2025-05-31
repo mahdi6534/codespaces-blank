@@ -343,9 +343,9 @@ const tasksPoll = async (views) => {
     () => {
       let location = locations[generateRandomNumber(0, locations.length + 1)];
       const username =
-        "user-doublemobmedia-sessionduration-10-country-" +
+        "qualityser-res-" +
         location +
-        "-session-" +
+        "-sid-" +
         String(generateRandomNumber(10000, 10000000));
 
       return OpenBrowser(url ? url : "https://www.google.com", username);
