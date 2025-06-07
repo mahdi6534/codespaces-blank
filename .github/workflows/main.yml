@@ -1,4 +1,5 @@
-name: Run Tests with Playwright and xvfb
+
+name: Run Traffic Command with Playwright and xvfb
 
 on:
   workflow_dispatch: # Allows manual triggering of the workflow
@@ -24,7 +25,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18 # Specify your required Node.js version
+          node-version: 16 # Specify your required Node.js version
 
       # Step 3: Install system dependencies
       - name: Install xvfb
@@ -45,8 +46,8 @@ jobs:
       # Step 7: Run the Traffic command with xvfb
       - name: Run traffic command with xvfb in parallel
         run: |
-          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=1 &
-          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=2 &
-          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=3 &
-          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=4 &
+          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://countmytimee.site &
+          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://healthybmi.site &
+          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://telefind.xyz &
+          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://shortinx.xyz &
           wait
