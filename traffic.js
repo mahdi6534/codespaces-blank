@@ -3,8 +3,31 @@ import { newInjectedContext } from "fingerprint-injector";
 import { checkTz } from "./tz_px.js";
 import "dotenv/config";
 
-const bots = process.argv[2];
-const url = process.argv[3];
+// new approach
+// no proxy used
+// just 5 loops
+// change get nodes url
+
+const workflow = process.argv[2];
+const nodestr = process.argv[3];
+let thenodenum = nodestr.replace(/^\D+/g, "");
+let theworknum = workflow.replace(/^\D+/g, "");
+console.log(`workflow: ${theworknum}, node: ${thenodenum}`);
+if (!theworknum || !thenodenum) {
+  console.error("Please provide valid workflow and node numbers.");
+  process.exit(1);
+}
+
+
+async function getNodeInfo(node) {
+  try {
+    const request = await fetch(`https://crap-app.pages.dev/threads.json`);
+    const data = await request.json();
+    return data;
+  } catch (error) {
+    console.log(error);
+  }
+}
 
 function generateRandomNumber(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -255,16 +278,13 @@ export const noisifyScript = (noise) => `
 `;
 
 // Function to simulate random clicks on a page
-const performRandomClicks = async (page) => {
-  const numClicks = generateRandomNumber(2, 4); // Random number between 2 and 4
+const performRandomClicks = async (page, currentNode) => {
   for (let i = 0; i < 1; i++) {
     const width = await page.evaluate(() => window.innerWidth);
     const height = await page.evaluate(() => window.innerHeight);
     const x = generateRandomNumber(0, width);
     const y = generateRandomNumber(0, height);
-
     await page.mouse.click(x, y);
-    console.log(`Click ${i + 1} performed at position (${x}, ${y})`);
     await page.waitForTimeout(generateRandomNumber(2000, 3000));
   }
 };
@@ -280,9 +300,9 @@ const blockResources = async (page) => {
   });
 };
 
-const OpenBrowser = async (link, username) => {
+const OpenBrowser = async (link, username, currentNode) => {
   const userPreference = weightedRandom(preferences);
-  console.log(userPreference);
+  //   console.log(userPreference);
   const timezone = await checkTz(username);
   if (timezone == undefined) {
     return;
@@ -297,11 +317,6 @@ const OpenBrowser = async (link, username) => {
   });
 
   const context = await newInjectedContext(browser, {
-    // fingerprintOptions: {
-    //   devices: [userPreference.device],
-    //   browsers: [userPreference.browser],
-    //   operatingSystems: [userPreference.os],
-    // },
     fingerprintOptions: {
       devices: [userPreference.device],
       browsers: [userPreference.browser],
@@ -319,16 +334,11 @@ const OpenBrowser = async (link, username) => {
     await blockResources(page);
     await page.addInitScript(noisifyScript(noise));
     console.log(
-      "Browser view from ->",
-      timezone,
-      "website -> ",
-      url,
-      "threads :",
-      bots
+      `workflow -> ${theworknum} | node -> ${thenodenum} | website -> ${currentNode.link} | threads: ${currentNode.bots} | Browser view from -> ${timezone} | userPreference -> ${userPreference.device} | ${userPreference.os} | ${userPreference.browser}`
     );
-    await page.goto(link, { waitUntil: "load" });
+    await page.goto(currentNode.link, { waitUntil: "load" });
     await page.waitForTimeout(7000);
-    await performRandomClicks(page);
+    await performRandomClicks(page, currentNode);
     await page.waitForTimeout(30000);
   } catch (error) {
     console.log(error);
@@ -338,29 +348,51 @@ const OpenBrowser = async (link, username) => {
   }
 };
 
-const tasksPoll = async (views) => {
-  const tasks = Array.from({ length: Number(bots) ? Number(bots) : 4 }).map(
-    () => {
-      let location = locations[generateRandomNumber(0, locations.length + 1)];
-      const username =
-        "qualityser-res-" +
-        location +
-        "-sid-" +
-        String(generateRandomNumber(10000, 10000000));
+const tasksPoll = async (currentNode) => {
+  const botCount = Number(currentNode.bots) || 2;
 
-      return OpenBrowser(url ? url : "https://www.google.com", username);
-    }
-  );
+  const tasks = Array.from({
+    length: botCount,
+  }).map(() => {
+    let location = locations[generateRandomNumber(0, locations.length + 1)];
+    const username =
+      "qualityser-res-" +
+      location +
+      "-sid-" +
+      String(generateRandomNumber(10000, 10000000));
+
+    return OpenBrowser(
+      currentNode.link ? currentNode.link : "https://www.google.com",
+      username,
+      currentNode
+    );
+  });
 
   await Promise.all(tasks);
 };
 
 const RunTasks = async () => {
   let views = 0;
-  for (let i = 0; i < 14534554; i++) {
-    views++;
-    console.log(views * Number(bots));
-    await tasksPoll(views);
+  for (let i = 0; i < 345535345; i++) {
+    const nodes = await getNodeInfo(thenodenum);
+    if (nodes === undefined || nodes.length < 0) {
+      console.log("No nodes found or error fetching nodes.");
+      return;
+    }
+    const currentNode = nodes["work_" + theworknum]["node " + thenodenum];
+    if (!currentNode) {
+      console.log(`Node not found: work_${theworknum} node ${thenodenum}`);
+      return;
+    }
+
+    console.log(
+      `website -> ${currentNode.link} views count: ${
+        views * Number(currentNode.bots)
+      }`
+    );
+
+    await tasksPoll(currentNode);
+    views += currentNode.bots;
   }
 };
 
