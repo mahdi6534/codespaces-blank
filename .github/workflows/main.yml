@@ -48,6 +48,6 @@ jobs:
         run: |
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://countmytimee.site &
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://healthybmi.site &
-          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 2 https://telefind.xyz &
+          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://telefind.xyz &
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' node traffic.js 1 https://shortinx.xyz &
           wait
