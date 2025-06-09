@@ -49,4 +49,5 @@ jobs:
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=2 &
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=3 &
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=4 &
+          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js workflow=2 node=5 &
           wait
