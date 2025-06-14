@@ -8,20 +8,33 @@ import "dotenv/config";
 // just 5 loops
 // change get nodes url
 
-const workflow = process.argv[2];
-const nodestr = process.argv[3];
-let thenodenum = nodestr.replace(/^\D+/g, "");
-let theworknum = workflow.replace(/^\D+/g, "");
-console.log(`workflow: ${theworknum}, node: ${thenodenum}`);
-if (!theworknum || !thenodenum) {
-  console.error("Please provide valid workflow and node numbers.");
-  process.exit(1);
+// controll one workflow without stoping it logic
+
+const args = process.argv.slice(2);
+let theworknum = null;
+
+args.forEach((arg) => {
+  if (arg.startsWith("work=")) {
+    theworknum = arg.split("=")[1].match(/\d+/)[0];
+  }
+});
+
+const endPoint = `https://crap-app.pages.dev`;
+async function getNodeInfo() {
+  try {
+    const request = await fetch(`${endPoint}/threads.json`);
+    console.log("Fetching node info...");
+    const data = await request.json();
+    return data;
+  } catch (error) {
+    console.log(error);
+  }
 }
 
-
-async function getNodeInfo(node) {
+async function getCustomCountries() {
   try {
-    const request = await fetch(`https://crap-app.pages.dev/threads.json`);
+    const request = await fetch(`${endPoint}/countries.json`);
+    console.log("Fetching custom countries...");
     const data = await request.json();
     return data;
   } catch (error) {
@@ -35,19 +48,13 @@ function generateRandomNumber(min, max) {
 
 const locations = [
   "se", // Sweden
-
   "ng", // Nigeria
   "cm", // Cameroon
-
   "ci", // Cote D'Ivoire
-
   "ua", // Ukraine
-
   "at", // Austria
   "at", // Austria
-
   "fr", // France
-
   "ca", // Canada
   "us", // United States
   "us", // United States
@@ -300,9 +307,8 @@ const blockResources = async (page) => {
   });
 };
 
-const OpenBrowser = async (link, username, currentNode) => {
+const OpenBrowser = async (username, currentNode, views) => {
   const userPreference = weightedRandom(preferences);
-  //   console.log(userPreference);
   const timezone = await checkTz(username);
   if (timezone == undefined) {
     return;
@@ -334,7 +340,7 @@ const OpenBrowser = async (link, username, currentNode) => {
     await blockResources(page);
     await page.addInitScript(noisifyScript(noise));
     console.log(
-      `workflow -> ${theworknum} | node -> ${thenodenum} | website -> ${currentNode.link} | threads: ${currentNode.bots} | Browser view from -> ${timezone} | userPreference -> ${userPreference.device} | ${userPreference.os} | ${userPreference.browser}`
+      `w -> ${theworknum}| views -> ${views.views} | website -> ${currentNode.link} | custom countries -> ${currentNode.custom_location} | threads -> ${currentNode.bots} | Browser view from -> ${timezone} | userPreference -> ${userPreference.device}`
     );
     await page.goto(currentNode.link, { waitUntil: "load" });
     await page.waitForTimeout(7000);
@@ -348,51 +354,76 @@ const OpenBrowser = async (link, username, currentNode) => {
   }
 };
 
-const tasksPoll = async (currentNode) => {
-  const botCount = Number(currentNode.bots) || 2;
+const tasksPoll = async (currentNode, countries, views) => {
+  const botCount = Number(currentNode.bots) || 1;
 
   const tasks = Array.from({
     length: botCount,
   }).map(() => {
-    let location = locations[generateRandomNumber(0, locations.length + 1)];
+    const customLocations = countries.customLocations
+      ? countries.customLocations
+      : [
+          "se", // Sweden
+          "fr", // France
+          "us", // United States
+        ];
+    let location = currentNode.custom_location
+      ? customLocations[generateRandomNumber(0, customLocations.length + 1)]
+      : locations[generateRandomNumber(0, locations.length + 1)];
+
     const username =
       "qualityser-res-" +
       location +
       "-sid-" +
       String(generateRandomNumber(10000, 10000000));
 
-    return OpenBrowser(
-      currentNode.link ? currentNode.link : "https://www.google.com",
-      username,
-      currentNode
-    );
+    return OpenBrowser(username, currentNode, views);
   });
 
   await Promise.all(tasks);
 };
 
 const RunTasks = async () => {
-  let views = 0;
+  const nodes = await getNodeInfo();
+  const viewLog = [];
+  const currentNode = nodes["work_" + theworknum];
+  const keys = Object.keys(currentNode);
+
+  keys.map((key) => {
+    viewLog.push({ key: theworknum, node: currentNode[key], views: 0 });
+  });
+
   for (let i = 0; i < 345535345; i++) {
-    const nodes = await getNodeInfo(thenodenum);
+    const countries = await getCustomCountries();
+    const nodes = await getNodeInfo();
+
     if (nodes === undefined || nodes.length < 0) {
       console.log("No nodes found or error fetching nodes.");
       return;
     }
-    const currentNode = nodes["work_" + theworknum]["node " + thenodenum];
-    if (!currentNode) {
-      console.log(`Node not found: work_${theworknum} node ${thenodenum}`);
-      return;
-    }
+    const currentNode = nodes["work_" + theworknum];
+    const keys = Object.keys(currentNode);
+
+    const tasks = keys.map((key) => {
+      viewLog.map((item) =>
+        item.node.link === currentNode[key].link
+          ? (item.views += currentNode[key].bots)
+          : item
+      );
+      // Call tasksPoll for each node
+      return tasksPoll(
+        currentNode[key],
+        countries,
+        viewLog.find((item) => item.node.link === currentNode[key].link)
+      );
+    });
 
     console.log(
-      `website -> ${currentNode.link} views count: ${
-        views * Number(currentNode.bots)
-      }`
+      `Running tasks for workflow ${theworknum}, nodes ${
+        keys.length
+      }, iteration ${i + 1}`
     );
-
-    await tasksPoll(currentNode);
-    views += currentNode.bots;
+    await Promise.all(tasks);
   }
 };
 
