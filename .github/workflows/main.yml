@@ -1,49 +1,74 @@
-name: Run Tests with Playwright and xvfb
+name: Matrix Traffic Runner
 
 on:
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch:
   push:
     branches:
-      - main # Run workflow on push to the 'main' branch
+      - main
 
 jobs:
-  run-traffic-command:
+  # ── Step 1: Dynamically generate a JSON array [1, 2, ..., 256] ──────────────
+  generate-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.set-matrix.outputs.chunks }}
+    steps:
+      - name: Generate chunk list (1 to 256)
+        id: set-matrix
+        run: |
+          echo "chunks=$(python3 -c 'import json; print(json.dumps(list(range(1, 257))))')" >> $GITHUB_OUTPUT
 
-    env:
-      PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
-      PROXY_PORT: ${{ secrets.PROXY_PORT }}
-      PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+  # ── Step 2: Run traffic script for every chunk in parallel ──────────────────
+  run-traffic-command:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
+
+    # No proxy secrets needed — local network is used directly
+    # env:
+    #   PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+    #   PROXY_PORT:     ${{ secrets.PROXY_PORT }}
+    #   PROXY_SERVER:   ${{ secrets.PROXY_SERVER }}
 
     steps:
-      # Step 1: Checkout code
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js
+      # ── 2. Node.js + npm cache (uses package-lock.json as the cache key) ────
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18 # Specify your required Node.js version
+          node-version: 18
+          cache: 'npm'
 
-      # Step 3: Install system dependencies
+      # ── 3. Playwright browser cache ──────────────────────────────────────────
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # ── 4. Install npm dependencies (fast when ~/.npm is cached) ─────────────
+      - name: Install project dependencies
+        run: npm ci
+
+      # ── 5. Install Playwright browsers ONLY on cache miss ────────────────────
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+
+      # ── 6. Install xvfb (virtual display for headful Chromium on Linux) ──────
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
-      # Step 4: Install project dependencies
-      - name: Install project dependencies
-        run: npm install
-
-      # Step 5: Install Playwright tools
-      - name: Install Playwright tools
-        run: npx playwright install
-
-      # Step 6: Install missing dependencies
-      - name: Install missing dependencies
-        run: npm install generative-bayesian-network
-
-      # Step 7: Run the Traffic command with xvfb
-      - name: Run traffic command with xvfb in parallel
-        run: |
-          xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0 1920x1080x24' node traffic.js work=2 &
-          wait
+      # ── 7. Run the traffic script for this chunk ─────────────────────────────
+      - name: Run matrix traffic (chunk ${{ matrix.chunk }})
+        run: xvfb-run --auto-servernum node matrix_traffic.js work=2
