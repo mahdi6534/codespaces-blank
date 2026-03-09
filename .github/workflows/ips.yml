@@ -2,9 +2,9 @@ name: IP Tracker — Matrix Job per Chunk
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
 
 jobs:
   # Dynamically generates a JSON array [1, 2, ..., 256] — no hardcoding needed
