@@ -22,6 +22,7 @@ jobs:
     needs: generate-matrix
     runs-on: ubuntu-latest
     strategy:
+      max-parallel: 2
       matrix:
         chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
       fail-fast: false
