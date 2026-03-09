@@ -45,7 +45,26 @@ jobs:
         with:
           node-version: 18
           cache: 'npm'
-
+          
+  # 1. Check the public IP of this runner via httpbin
+      #    Uses an async IIFE so Node doesn't exit before the Promise resolves
+      - name: Check and record current IP
+        run: |
+          node -e "
+            (async () => {
+              const chunk = '${{ matrix.chunk }}';
+              try {
+                const res  = await fetch('https://httpbin.org/ip');
+                const data = await res.json();
+                const ip   = data.origin;
+                console.log('Chunk ' + chunk + ' => IP: ' + ip);
+                require('fs').writeFileSync('ip-result.txt', ip);
+              } catch (e) {
+                console.error('Failed to fetch IP:', e.message);
+                process.exit(1);
+              }
+            })();
+          "
       # ── 3. Playwright browser cache ──────────────────────────────────────────
       - name: Cache Playwright Browsers
         uses: actions/cache@v4
