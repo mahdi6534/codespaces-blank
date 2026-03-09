@@ -1,0 +1,113 @@
+name: IP Tracker — Matrix Job per Chunk
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Dynamically generates a JSON array [1, 2, ..., 256] — no hardcoding needed
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.set-matrix.outputs.chunks }}
+    steps:
+      - name: Generate chunk list (1 to 256)
+        id: set-matrix
+        run: |
+          echo "chunks=$(python3 -c 'import json; print(json.dumps(list(range(1, 257))))')" >> $GITHUB_OUTPUT
+
+  run-traffic-command:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
+      fail-fast: false
+
+    # env:
+    #   PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+    #   PROXY_PORT: ${{ secrets.PROXY_PORT }}
+    #   PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # 1. Check the public IP of this runner via httpbin
+      #    Uses an async IIFE so Node doesn't exit before the Promise resolves
+      - name: Check and record current IP
+        run: |
+          node -e "
+            (async () => {
+              const chunk = '${{ matrix.chunk }}';
+              try {
+                const res  = await fetch('https://httpbin.org/ip');
+                const data = await res.json();
+                const ip   = data.origin;
+                console.log('Chunk ' + chunk + ' => IP: ' + ip);
+                require('fs').writeFileSync('ip-result.txt', ip);
+              } catch (e) {
+                console.error('Failed to fetch IP:', e.message);
+                process.exit(1);
+              }
+            })();
+          "
+
+      # 6. Upload this job's IP as a named artifact
+      - name: Upload IP result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ip-chunk-${{ matrix.chunk }}
+          path: ip-result.txt
+
+  # ─────────────────────────────────────────────
+  # Aggregate: runs AFTER all 256 matrix jobs
+  # Downloads every ip-result.txt and counts IPs
+  # ─────────────────────────────────────────────
+  aggregate-ips:
+    needs: run-traffic-command
+    if: always() # Run even if some matrix jobs failed — still collect what we got
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all IP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ip-chunk-*   # grab every chunk artifact
+          merge-multiple: false  # keep them in separate sub-folders
+          path: ip-results
+
+      - name: Count IP occurrences and report
+        run: |
+          node -e "
+            const fs   = require('fs');
+            const path = require('path');
+            const dir  = 'ip-results';
+            const counts = {};
+
+            // Each artifact is extracted into its own sub-folder
+            fs.readdirSync(dir).forEach(folder => {
+              const file = path.join(dir, folder, 'ip-result.txt');
+              if (fs.existsSync(file)) {
+                const ip = fs.readFileSync(file, 'utf8').trim();
+                counts[ip] = (counts[ip] || 0) + 1;
+              }
+            });
+
+            const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+            const total   = Object.values(counts).reduce((s, n) => s + n, 0);
+            const unique  = entries.length;
+
+            console.log('\n========== IP Occurrence Report ==========');
+            entries.forEach(([ip, count]) => {
+              const tag = count > 1 ? '⚠️  DUPLICATE x' + count : '✅ unique';
+              console.log(ip.padEnd(20) + ' ' + tag);
+            });
+            console.log('------------------------------------------');
+            console.log('Total jobs : ' + total);
+            console.log('Unique IPs : ' + unique);
+            console.log('Duplicates : ' + (total - unique));
+            console.log('==========================================\n');
+          "
