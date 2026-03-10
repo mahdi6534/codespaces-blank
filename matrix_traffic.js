@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 import { newInjectedContext } from "fingerprint-injector";
-import { checkTz } from "./proxy_matrix_tz.js";
+import { checkTz } from "./matrix_tz.js";
 import "dotenv/config";
 
 // new approach
