@@ -18,7 +18,6 @@ args.forEach((arg) => {
     theworknum = arg.split("=")[1].match(/\d+/)[0];
   }
 });
-
 // change this
 //const endPoint = `http://localhost:3000`; // change this
 // change this
@@ -310,18 +309,12 @@ const blockResources = async (page) => {
   });
 };
 
-const generateSessionId = (length = 32) => {
-  let result = "";
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-};
 
-const OpenBrowser = async (username, currentNode, views) => {
+
+const OpenBrowser = async (currentNode, views) => {
   const userPreference = weightedRandom(preferences);
-  const timezone = await checkTz(username);
+  
+  const timezone = await checkTz();
   if (timezone == undefined) {
     console.log("undefined timezone, skipping this bot");
     return false;
@@ -329,11 +322,6 @@ const OpenBrowser = async (username, currentNode, views) => {
 
   const browser = await chromium.launch({
     headless: false,
-    proxy: {
-      server: `${process.env.proxy_server}`,
-      username: username,
-      password: process.env.proxy_password,
-    },
   });
 
   const context = await newInjectedContext(browser, {
@@ -376,26 +364,13 @@ const OpenBrowser = async (username, currentNode, views) => {
   }
 };
 
-const tasksPoll = async (currentNode, countries, views) => {
+const tasksPoll = async (currentNode, views) => {
   const botCount = Number(currentNode.bots) || 1;
 
   const tasks = Array.from({
     length: botCount || 2,
   }).map(() => {
-    const customLocations = countries.customLocations
-      ? countries.customLocations
-      : [
-          "se", // Sweden
-          "fr", // France
-          "us", // United States
-        ];
-    let location = currentNode.custom_location
-      ? customLocations[generateRandomNumber(0, customLocations.length + 1)]
-      : locations[generateRandomNumber(0, locations.length + 1)];
-    const sessionId = generateSessionId(50); // Generate 50-character session ID
-    const username = `brd-customer-hl_19cb0fe8-zone-mw-country-${location}-session-${sessionId}`;
-
-    return OpenBrowser(username, currentNode, views);
+    return OpenBrowser(currentNode, views);
   });
 
   await Promise.all(tasks);
@@ -412,7 +387,6 @@ const RunTasks = async () => {
   });
 
   for (let i = 0; i < 1; i++) {
-    const countries = await getCustomCountries();
     const nodes = await getNodeInfo();
 
     if (nodes === undefined || nodes.length < 0) {
@@ -431,7 +405,6 @@ const RunTasks = async () => {
       // Call tasksPoll for each node
       return tasksPoll(
         currentNode[key],
-        countries,
         viewLog.find((item) => item.node.link === currentNode[key].link)
       );
     });
