@@ -2,7 +2,6 @@ name: Matrix Traffic Runner
 
 on:
   workflow_dispatch:
-  push:
 
 
 jobs:
