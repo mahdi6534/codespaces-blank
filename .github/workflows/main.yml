@@ -23,15 +23,16 @@ jobs:
     needs: generate-matrix
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 10
+      max-parallel: 2
       fail-fast: false
       matrix:
         chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
 
     # No proxy secrets needed — local network is used directly
-    env:
-      proxy_server: ${{ secrets.PROXY_SERVER }}      # Make sure this matches your Secret name exactly
-      proxy_password: ${{ secrets.PROXY_PASSWORD }}  # This was pointing to proxy_server before!
+    # env:
+    #   PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+    #   PROXY_PORT:     ${{ secrets.PROXY_PORT }}
+    #   PROXY_SERVER:   ${{ secrets.PROXY_SERVER }}
 
     steps:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
@@ -42,28 +43,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: 'npm'
-          
-  # 1. Check the public IP of this runner via httpbin
-      #    Uses an async IIFE so Node doesn't exit before the Promise resolves
-      - name: Check and record current IP
-        run: |
-          node -e "
-            (async () => {
-              const chunk = '${{ matrix.chunk }}';
-              try {
-                const res  = await fetch('https://httpbin.org/ip');
-                const data = await res.json();
-                const ip   = data.origin;
-                console.log('Chunk ' + chunk + ' => IP: ' + ip);
-                require('fs').writeFileSync('ip-result.txt', ip);
-              } catch (e) {
-                console.error('Failed to fetch IP:', e.message);
-                process.exit(1);
-              }
-            })();
-          "
+          node-version: 22
+          cache: "npm"
+
       # ── 3. Playwright browser cache ──────────────────────────────────────────
       - name: Cache Playwright Browsers
         uses: actions/cache@v4
@@ -83,10 +65,7 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium
 
-      # ── 6. Install xvfb (virtual display for headful Chromium on Linux) ──────
-      - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
-
       # ── 7. Run the traffic script for this chunk ─────────────────────────────
+      # Note: xvfb is pre-installed on ubuntu-latest — no install step needed
       - name: Run matrix traffic (chunk ${{ matrix.chunk }})
-        run: xvfb-run --auto-servernum node matrix_traffic.js work=2
+        run: xvfb-run --auto-servernum node matrix_traffic.js work=3

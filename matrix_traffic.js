@@ -3,21 +3,23 @@ import { newInjectedContext } from "fingerprint-injector";
 import { checkTz } from "./matrix_tz.js";
 import "dotenv/config";
 
-// new approach
-// no proxy used
-// just 5 loops
-// change get nodes url
-
-// controll one workflow without stoping it logic
+// ── Stealth traffic bot — no proxy, direct local network ──────────────────
+// Usage:  node matrix_traffic.js work=<N>   → run a workflow
+//         node matrix_traffic.js url=<URL>  → test mode, open any URL directly
 
 const args = process.argv.slice(2);
 let theworknum = null;
+let testUrl = null;
 
 args.forEach((arg) => {
   if (arg.startsWith("work=")) {
-    theworknum = arg.split("=")[1].match(/\d+/)[0];
+    theworknum = arg.split("=")[1].match(/\d+/)[0]; // everything after "work="
+  }
+  if (arg.startsWith("url=")) {
+    testUrl = arg.slice(4); // everything after "url="
   }
 });
+
 // change this
 //const endPoint = `http://localhost:3000`; // change this
 // change this
@@ -309,11 +311,56 @@ const blockResources = async (page) => {
   });
 };
 
-
+// ── Discord screenshot sender ────────────────────────────────────────────────
+const sendToDiscord = async (screenshotBuffer, meta) => {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.log("[Discord] No DISCORD_WEBHOOK_URL set, skipping.");
+    return;
+  }
+  try {
+    const { FormData, Blob } = await import("node:buffer").then(
+      () => globalThis,
+    );
+    const form = new FormData();
+    form.append(
+      "payload_json",
+      JSON.stringify({
+        embeds: [
+          {
+            title: `📸 Screenshot — Work #${meta.work}`,
+            color: 0x5865f2,
+            fields: [
+              { name: "🌐 Site", value: meta.link, inline: true },
+              { name: "🕐 Timezone", value: meta.timezone, inline: true },
+              { name: "📱 Device", value: meta.device, inline: true },
+              { name: "👁 Views", value: String(meta.views), inline: true },
+            ],
+            image: { url: "attachment://screenshot.png" },
+            footer: { text: new Date().toUTCString() },
+          },
+        ],
+      }),
+    );
+    form.append(
+      "files[0]",
+      new Blob([screenshotBuffer], { type: "image/png" }),
+      "screenshot.png",
+    );
+    const res = await fetch(webhookUrl, { method: "POST", body: form });
+    if (res.ok) {
+      console.log("[Discord] Screenshot sent successfully.");
+    } else {
+      console.log(`[Discord] Failed: ${res.status} ${res.statusText}`);
+    }
+  } catch (err) {
+    console.log("[Discord] Error sending screenshot:", err.message);
+  }
+};
 
 const OpenBrowser = async (currentNode, views) => {
   const userPreference = weightedRandom(preferences);
-  
+
   const timezone = await checkTz();
   if (timezone == undefined) {
     console.log("undefined timezone, skipping this bot");
@@ -338,23 +385,37 @@ const OpenBrowser = async (currentNode, views) => {
   try {
     const noise = generateNoise();
     const page = await context.newPage();
-    // add media blockers
-    await blockResources(page);
+    // ──  add media blockers ───────────────────────────────────────
+    // ──  await blockResources(page); ───────────────────────────────────────
     await page.addInitScript(noisifyScript(noise));
     console.log(
-      `w -> ${theworknum}| views -> ${views.views} | website -> ${currentNode.link} | custom countries -> ${currentNode.custom_location} | threads -> ${currentNode.bots} | Browser view from -> ${timezone} | userPreference -> ${userPreference.device}`
+      `worker -> ${theworknum}| views -> ${views.views} | website -> ${currentNode.link} | custom countries -> ${currentNode.custom_location} | threads -> ${currentNode.bots} | Browser view from -> ${timezone} | userPreference -> ${userPreference.device}`,
     );
     await page.goto(currentNode.link, { waitUntil: "load" });
-    // Wait for network to settle after page load
+    // ── Wait for network to settle after page load ───────────────────────────────────────
     await page
       .waitForLoadState("networkidle", { timeout: 30000 })
       .catch(() => {});
-    // Random initial wait (simulate human reading time: 5-15 seconds)
+    // ── Random initial wait (simulate human reading time: 5-15 seconds) ───────────────────────────────────────
     const initialWait = generateRandomNumber(5000, 15000);
     await page.waitForTimeout(initialWait);
     await performRandomClicks(page);
     const dwellTime = generateRandomNumber(15000, 60000);
     await page.waitForTimeout(dwellTime);
+
+    // ── Take screenshot before closing ───────────────────────────────────────
+    const screenshot = await page
+      .screenshot({ fullPage: false })
+      .catch(() => null);
+    if (screenshot) {
+      await sendToDiscord(screenshot, {
+        work: theworknum,
+        link: currentNode.link,
+        timezone: timezone,
+        device: userPreference.device,
+        views: views?.views ?? 0,
+      });
+    }
     return true;
   } catch (error) {
     console.log(error);
@@ -400,22 +461,35 @@ const RunTasks = async () => {
       viewLog.map((item) =>
         item.node.link === currentNode[key].link
           ? (item.views += currentNode[key].bots)
-          : item
+          : item,
       );
       // Call tasksPoll for each node
       return tasksPoll(
         currentNode[key],
-        viewLog.find((item) => item.node.link === currentNode[key].link)
+        viewLog.find((item) => item.node.link === currentNode[key].link),
       );
     });
 
     console.log(
       `Running tasks for workflow ${theworknum}, nodes ${
         keys.length
-      }, iteration ${i + 1}`
+      }, iteration ${i + 1}`,
     );
     await Promise.all(tasks);
   }
 };
 
-RunTasks();
+// ── Quick test mode: node matrix_traffic.js url=https://pixelscan.net/ip ────
+const RunTest = async () => {
+  console.log(`[TEST MODE] Opening: ${testUrl}`);
+  const fakeNode = { link: testUrl, custom_location: false, bots: 1 };
+  const fakeViews = { views: 0 };
+  await OpenBrowser(fakeNode, fakeViews);
+};
+
+// ── Entry point ──────────────────────────────────────────────────────────────
+if (testUrl) {
+  RunTest();
+} else {
+  RunTasks();
+}
