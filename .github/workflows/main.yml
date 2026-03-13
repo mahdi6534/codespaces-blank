@@ -28,11 +28,11 @@ jobs:
       matrix:
         chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
 
-    # No proxy secrets needed — local network is used directly
-    # env:
-    #   PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
-    #   PROXY_PORT:     ${{ secrets.PROXY_PORT }}
-    #   PROXY_SERVER:   ${{ secrets.PROXY_SERVER }}
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      # PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+      # PROXY_PORT:     ${{ secrets.PROXY_PORT }}
+      # PROXY_SERVER:   ${{ secrets.PROXY_SERVER }}
 
     steps:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
