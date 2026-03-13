@@ -88,4 +88,4 @@ jobs:
       # ── 7. Run tor_traffic.js (xvfb pre-installed on ubuntu-latest) ──────────
       # Note: 3 tor instances run inside the script (torInstances array)
       - name: Run Tor traffic bot
-        run: xvfb-run --auto-servernum node tor_traffic.js work=3 screenshot=false
+        run: xvfb-run --auto-servernum node tor_traffic.js work=3 screenshot=true
