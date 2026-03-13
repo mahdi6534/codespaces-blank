@@ -27,3 +27,22 @@ export const checkTz = async (socksPort) => {
     return undefined;
   }
 };
+
+export const checkTorIP = async (socksPort) => {
+  const proxyAgent = new SocksProxyAgent(`socks5://127.0.0.1:${socksPort}`);
+  try {
+    const response = await axios.get("https://httpbin.org/ip ", {
+      httpAgent: proxyAgent,
+      httpsAgent: proxyAgent,
+      timeout: 15000,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+      family: 4, // Force IPv4
+    });
+    return response.data.origin;
+  } catch (error) {
+    return "Offline/Error";
+  }
+};

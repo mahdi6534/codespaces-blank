@@ -1,7 +1,9 @@
 import { chromium } from "playwright";
 import { newInjectedContext } from "fingerprint-injector";
-import { checkTz } from "./matrix_tz.js";
+import { checkTz, checkTorIP } from "./tor_traffic_tz.js";
 import "dotenv/config";
+import tr from "tor-request";
+import fs from "fs/promises";
 
 // ── Stealth traffic bot — no proxy, direct local network ──────────────────
 // Usage:  node matrix_traffic.js work=<N>   → run a workflow
@@ -11,13 +13,25 @@ const args = process.argv.slice(2);
 let theworknum = null;
 let testUrl = null;
 let enableScreenshot = true; // default ON — pass screenshot=false to disable
+let testThreads = 1; // default 1 thread in test mode — override with threads=N
+let testRotations = 1; // default 1 rotation in test mode — override with rotation=N
 
 args.forEach((arg) => {
   if (arg.startsWith("work=")) {
-    theworknum = arg.split("=")[1].match(/\d+/)[0]; // everything after "work="
+    theworknum = arg.split("=")[1].match(/\d+/)[0];
   }
   if (arg.startsWith("url=")) {
     testUrl = arg.slice(4); // everything after "url="
+  }
+  if (arg.startsWith("threads=")) {
+    testThreads = parseInt(arg.split("=")[1], 10) || 1;
+  }
+  if (
+    arg.startsWith("rotation=") ||
+    arg.startsWith("rotations=") ||
+    arg.startsWith("rot=")
+  ) {
+    testRotations = parseInt(arg.split("=")[1], 10) || 1;
   }
   if (arg.startsWith("screenshot=")) {
     enableScreenshot = arg.split("=")[1].toLowerCase() !== "false";
@@ -37,6 +51,23 @@ async function getNodeInfo() {
   } catch (error) {
     console.log(error);
   }
+}
+// Simple IP tracking
+const ipCounts = new Map();
+
+// Save IP to simple text file
+async function saveIP(ip) {
+  // Update count in memory
+  ipCounts.set(ip, (ipCounts.get(ip) || 0) + 1);
+
+  // Write to file (format: IP COUNT)
+  let lines = [];
+  for (const [ip, count] of ipCounts.entries()) {
+    lines.push(`${ip} ${count}`);
+  }
+
+  await fs.writeFile("tor_ips.txt", lines.join("\n"), "utf8");
+  console.log(`IP: ${ip} - Count: ${ipCounts.get(ip)}`);
 }
 
 async function getCustomCountries() {
@@ -337,8 +368,7 @@ const sendToDiscord = async (screenshotBuffer, meta) => {
             fields: [
               { name: "🌐 Site", value: meta.link, inline: true },
               { name: "🕐 Timezone", value: meta.timezone, inline: true },
-              { name: "📱 Device", value: meta.device, inline: true },
-              { name: "👁 Views", value: String(meta.views), inline: true },
+              { name: "IP", value: String(meta.proxyIP), inline: true },
             ],
             image: { url: "attachment://screenshot.png" },
             footer: { text: new Date().toUTCString() },
@@ -353,7 +383,6 @@ const sendToDiscord = async (screenshotBuffer, meta) => {
     );
     const res = await fetch(webhookUrl, { method: "POST", body: form });
     if (res.ok) {
-      console.log("[Discord] Screenshot sent successfully.");
     } else {
       console.log(`[Discord] Failed: ${res.status} ${res.statusText}`);
     }
@@ -361,18 +390,37 @@ const sendToDiscord = async (screenshotBuffer, meta) => {
     console.log("[Discord] Error sending screenshot:", err.message);
   }
 };
+const torInstances = [
+  { socksPort: 9050, controlPort: 9051 }, // Instance 1
+  { socksPort: 9150, controlPort: 9151 }, // Instance 2
+  { socksPort: 9250, controlPort: 9251 }, // Instance 3
+];
 
-const OpenBrowser = async (currentNode, views) => {
+const renewTorSession = (myTor) => {
+  return new Promise((resolve, reject) => {
+    tr.TorControlPort.port = myTor.controlPort;
+    tr.TorControlPort.password = "mahdi2019";
+    tr.newTorSession((err) => {
+      if (err) return reject(err);
+      // console.log("New session renewed");
+      resolve();
+    });
+  });
+};
+
+const OpenBrowser = async (currentNode, views, myTor, proxyIP) => {
   const userPreference = weightedRandom(preferences);
-
-  const timezone = await checkTz();
+  const timezone = await checkTz(myTor.socksPort);
   if (timezone == undefined) {
     console.log("undefined timezone, skipping this bot");
     return false;
   }
-
+  const server = `socks5://127.0.0.1:${myTor.socksPort}`;
   const browser = await chromium.launch({
     headless: false,
+    proxy: {
+      server: server,
+    },
   });
 
   const context = await newInjectedContext(browser, {
@@ -400,12 +448,13 @@ const OpenBrowser = async (currentNode, views) => {
     await page
       .waitForLoadState("networkidle", { timeout: 30000 })
       .catch(() => {});
+
     // ── Random initial wait (simulate human reading time: 5-15 seconds) ───────────────────────────────────────
     const initialWait = generateRandomNumber(5000, 15000);
-    await page.waitForTimeout(initialWait);
+    await page.waitForTimeout(initialWait).catch(() => {});
     await performRandomClicks(page);
     const dwellTime = generateRandomNumber(15000, 60000);
-    await page.waitForTimeout(dwellTime);
+    await page.waitForTimeout(dwellTime).catch(() => {});
 
     // ── Screenshot + Discord (controlled by screenshot= flag) ───────────────
     if (enableScreenshot) {
@@ -414,14 +463,20 @@ const OpenBrowser = async (currentNode, views) => {
         .catch(() => null);
       if (screenshot) {
         await sendToDiscord(screenshot, {
-          work: theworknum,
+          work: theworknum || "Test mode",
           link: currentNode.link,
           timezone: timezone,
           device: userPreference.device,
           views: views?.views ?? 0,
+          proxyIP: proxyIP,
         });
       }
+    } else {
+      console.log("[Screenshot] Skipped (screenshot=false)");
     }
+
+    // ── change tor proxy ───────────────────────────────────────
+    await renewTorSession(myTor);
     return true;
   } catch (error) {
     console.log(error);
@@ -431,13 +486,18 @@ const OpenBrowser = async (currentNode, views) => {
   }
 };
 
-const tasksPoll = async (currentNode, views) => {
+const tasksPoll = async (currentNode, countries, views) => {
   const botCount = Number(currentNode.bots) || 1;
 
   const tasks = Array.from({
     length: botCount || 2,
-  }).map(() => {
-    return OpenBrowser(currentNode, views);
+  }).map(async (_, i) => {
+    const myTor = torInstances[i % torInstances.length];
+    const proxyIP = await checkTorIP(myTor.socksPort);
+    console.log(
+      `[Bot] Control Port for bot ${i} with ${myTor.controlPort} | IP: ${proxyIP}`,
+    );
+    return OpenBrowser(currentNode, views, myTor, proxyIP);
   });
 
   await Promise.all(tasks);
@@ -453,7 +513,8 @@ const RunTasks = async () => {
     viewLog.push({ key: theworknum, node: currentNode[key], views: 0 });
   });
 
-  for (let i = 0; i < 1; i++) {
+  for (let i = 0; i < 345535345; i++) {
+    const countries = await getCustomCountries();
     const nodes = await getNodeInfo();
 
     if (nodes === undefined || nodes.length < 0) {
@@ -472,6 +533,7 @@ const RunTasks = async () => {
       // Call tasksPoll for each node
       return tasksPoll(
         currentNode[key],
+        countries,
         viewLog.find((item) => item.node.link === currentNode[key].link),
       );
     });
@@ -485,12 +547,27 @@ const RunTasks = async () => {
   }
 };
 
-// ── Quick test mode: node matrix_traffic.js url=https://pixelscan.net/ip ────
 const RunTest = async () => {
-  console.log(`[TEST MODE] Opening: ${testUrl}`);
-  const fakeNode = { link: testUrl, custom_location: false, bots: 1 };
+  console.log(
+    `[TEST MODE] Opening: ${testUrl} | threads: ${testThreads} | rotations: ${testRotations}`,
+  );
+  const fakeNode = { link: testUrl, custom_location: false, bots: testThreads };
   const fakeViews = { views: 0 };
-  await OpenBrowser(fakeNode, fakeViews);
+
+  for (let r = 0; r < testRotations; r++) {
+    console.log(`\n[TEST] Starting rotation ${r + 1}/${testRotations}`);
+    // Spin up testThreads bots in parallel, round-robin across tor instances
+    const tasks = Array.from({ length: testThreads || 1 }).map(async (_, i) => {
+      const myTor = torInstances[i % torInstances.length];
+      const proxyIP = await checkTorIP(myTor.socksPort);
+      console.log(
+        `[TEST] Thread ${i + 1}/${testThreads} → SOCKS ${myTor.socksPort} | Control ${myTor.controlPort} | IP: ${proxyIP}`,
+      );
+      return OpenBrowser(fakeNode, fakeViews, myTor, proxyIP);
+    });
+
+    await Promise.all(tasks);
+  }
 };
 
 // ── Entry point ──────────────────────────────────────────────────────────────
