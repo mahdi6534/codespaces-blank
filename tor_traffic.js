@@ -355,7 +355,54 @@ const renewTorSession = (myTor) => {
     });
   });
 };
+// ── Discord screenshot sender ────────────────────────────────────────────────
+const sendToDiscord = async (screenshotBuffer, meta) => {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.log("[Discord] No DISCORD_WEBHOOK_URL set, skipping.");
+    return;
+  }
+  try {
+    const { FormData, Blob } = await import("node:buffer").then(
+      () => globalThis,
+    );
+    const form = new FormData();
+    
+    form.append(
+      "payload_json",
+      JSON.stringify({
+        embeds: [
+          {
+            title: `📸 Screenshot — Work #${meta.work}`,
+            color: 0x5865f2,
+            fields: [
+              { name: "🌐 Site", value: meta.link, inline: true },
+              { name: "🕐 Timezone", value: meta.timezone, inline: true },
+              { name: "📱 Device", value: meta.device, inline: true },
+              { name: "👁 Views", value: String(meta.views), inline: true },
+            ],
+            image: { url: "attachment://screenshot.png" },
+            footer: { text: new Date().toUTCString() },
+          },
+        ],
+      }),
+    );
 
+    form.append(
+      "files[0]",
+      new Blob([screenshotBuffer], { type: "image/png" }),
+      "screenshot.png",
+    );
+    const res = await fetch(webhookUrl, { method: "POST", body: form });
+    if (res.ok) {
+      console.log("[Discord] Screenshot sent successfully.");
+    } else {
+      console.log(`[Discord] Failed: ${res.status} ${res.statusText}`);
+    }
+  } catch (err) {
+    console.log("[Discord] Error sending screenshot:", err.message);
+  }
+};
 const OpenBrowser = async (currentNode, views, myTor) => {
   const userPreference = weightedRandom(preferences);
   const timezone = await checkTz(myTor.socksPort);
