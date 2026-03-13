@@ -3,8 +3,7 @@ name: Matrix Traffic Runner
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+
 
 jobs:
   # ── Step 1: Dynamically generate a JSON array [1, 2, ..., 256] ──────────────
