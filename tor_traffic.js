@@ -453,7 +453,7 @@ const RunTasks = async () => {
     viewLog.push({ key: theworknum, node: currentNode[key], views: 0 });
   });
 
-  for (let i = 0; i < 1; i++) {
+  for (let i = 0; i < 10000000; i++) {
     const nodes = await getNodeInfo();
 
     if (nodes === undefined || nodes.length < 0) {
