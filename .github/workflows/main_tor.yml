@@ -49,30 +49,29 @@ jobs:
 
       - name: Configure and start 2 Tor instances
         run: |
+          # ── Generate the correct hashed password at runtime ──
+          TOR_HASH=$(tor --hash-password "mahdi2019" | tail -1)
+          echo "Generated hash: $TOR_HASH"
+
           # ── Instance 1: SOCKS 9050 / Control 9051 ──
-          sudo bash -c 'cat > /etc/tor/torrc <<EOF
-          SocksPort 9050
-          ControlPort 9051
-          HashedControlPassword 16:78A6F4AD4B0ED8B26DEFE0CB58FAFDE0C7E0A64EB67E4AC2BCCE69EAE
-          DataDirectory /var/lib/tor
-          EOF'
+          # Use printf + tee so $TOR_HASH expands in the current shell (not a subshell)
+          printf "SocksPort 9050\nControlPort 9051\nHashedControlPassword %s\nDataDirectory /var/lib/tor\n" "$TOR_HASH" \
+            | sudo tee /etc/tor/torrc > /dev/null
 
           # ── Instance 2: SOCKS 9150 / Control 9151 ──
           sudo mkdir -p /var/lib/tor2
           sudo chown debian-tor:debian-tor /var/lib/tor2
-          sudo bash -c 'cat > /etc/tor/torrc2 <<EOF
-          SocksPort 9150
-          ControlPort 9151
-          HashedControlPassword 16:78A6F4AD4B0ED8B26DEFE0CB58FAFDE0C7E0A64EB67E4AC2BCCE69EAE
-          DataDirectory /var/lib/tor2
-          PidFile /var/run/tor/tor2.pid
-          EOF'
+          printf "SocksPort 9150\nControlPort 9151\nHashedControlPassword %s\nDataDirectory /var/lib/tor2\nPidFile /var/run/tor/tor2.pid\n" "$TOR_HASH" \
+            | sudo tee /etc/tor/torrc2 > /dev/null
 
-          # Start both instances
+          echo "--- torrc1 ---" && sudo cat /etc/tor/torrc
+          echo "--- torrc2 ---" && sudo cat /etc/tor/torrc2
+
+          # ── Start both instances ──
           sudo service tor restart
           sudo -u debian-tor tor -f /etc/tor/torrc2 --defaults-torrc /dev/null &
 
-          # Wait for both SOCKS ports to be ready
+          # ── Wait for both SOCKS ports to be ready ──
           echo "Waiting for Tor instances to be ready..."
           timeout 60 bash -c 'until nc -z 127.0.0.1 9050; do sleep 1; done'
           timeout 60 bash -c 'until nc -z 127.0.0.1 9150; do sleep 1; done'
