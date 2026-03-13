@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 import { newInjectedContext } from "fingerprint-injector";
-import { checkTz } from "./tz_tor_core_px.js";
+import { checkTz } from "./tor_traffic_tz.js";
 import "dotenv/config";
 import tr from "tor-request";
 import fs from "fs/promises";
